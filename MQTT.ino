@@ -30,12 +30,13 @@ void callback(char* topic, byte* payload, unsigned int length) {
   Serial.println(topic);
   int intValor = valorPayload.toInt();
   
-  if(String(topic) == String("changeTemperatura")){
+  
+  if(String(topic) == String("changePSTemperatura")){
     int intTemp = (intValor*(0.01*1024)/5);
     Serial.println(String(intTemp));
     digitalWrite(heater, 20);
   }
-  if(String(topic) == String("changeCooler")){
+  if(String(topic) == String("changePSCooler")){
     int intCooler = ((intValor*255)/100);
     Serial.println(String(intCooler));
     digitalWrite(cooler, intCooler);
@@ -55,7 +56,7 @@ void setup() {
   pinMode(cooler,OUTPUT);
   pinMode(2,INPUT);
   pinMode(4,INPUT);
-  digitalWrite(heater, 0);
+  digitalWrite(heater, 255);
 
   tempAtual = 0;
 }
@@ -67,8 +68,8 @@ void reconnect() {
       Serial.println("connected");
       
       mqttClient.publish("arduinouno","conectado");
-      mqttClient.subscribe("changeTemperatura");
-      mqttClient.subscribe("changeCooler");
+      mqttClient.subscribe("changePSTemperatura");
+      mqttClient.subscribe("changePSCooler");
       
     } else {
       Serial.print("failed, rc=");
@@ -105,7 +106,7 @@ void sendData(float temp) {
   char msgBuffer[20];
   float temperatura = temp;
   if(mqttClient.connect(CLIENT_ID)) {
-   mqttClient.publish("temperatura", dtostrf(temperatura, 6, 2, msgBuffer));
+   mqttClient.publish("PStemperatura", dtostrf(temperatura, 6, 2, msgBuffer));
    Serial.println("Pacote enviado");
  }
 }
