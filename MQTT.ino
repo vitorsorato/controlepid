@@ -13,12 +13,30 @@ EthernetClient ethClient;
 PubSubClient mqttClient;
 
 long previousMillis;
-const byte heater =3, cooler = 5, sensorPin = A0;
+const byte heater = 3, cooler = 5, sensorPin = A0;
 byte valorADTemp;
 float tempAtual, millisAtual;
+long int lastDeltaTime;
+
+
+double error = 0;
+double temperature;
+double lastTemperature;
+
+double kP = 5;
+double kI = 3;
+double kD = 6;
+
+double Prop = 0;
+double Integ = 0;
+double Deriv = 0;
+
+double PID = 0;
+double setPoint = 40;
+double setColer = 10;
 
 void callback(char* topic, byte* payload, unsigned int length) {
-  Serial.print("Message arrived [");
+  Serial.print("Mensagem recebida [");
   Serial.print(topic);
   Serial.print("]: ");
   String valorPayload = "";
@@ -26,20 +44,15 @@ void callback(char* topic, byte* payload, unsigned int length) {
     Serial.print((char)payload[i]);
     valorPayload = valorPayload + (char)payload[i];
   }
-  Serial.println("");
-  Serial.println(topic);
   int intValor = valorPayload.toInt();
   
-  
   if(String(topic) == String("changePSTemperatura")){
-    int intTemp = (intValor*(0.01*1024)/5);
-    Serial.println(String(intTemp));
-    digitalWrite(heater, 20);
+    Serial.println("changePSTemperatura");
+    setPoint = intValor;
   }
   if(String(topic) == String("changePSCooler")){
-    int intCooler = ((intValor*255)/100);
-    Serial.println(String(intCooler));
-    digitalWrite(cooler, intCooler);
+    Serial.println("changePSCooler");
+    setColer = intValor;
   }
 }
 
@@ -51,14 +64,12 @@ void setup() {
   mqttClient.setClient(ethClient);
   mqttClient.setServer("broker.hivemq.com",1883);
   mqttClient.setCallback(callback);
-  previousMillis = millis();
+
   pinMode(heater,OUTPUT);
   pinMode(cooler,OUTPUT);
   pinMode(2,INPUT);
   pinMode(4,INPUT);
-  digitalWrite(heater, 255);
-
-  tempAtual = 0;
+  digitalWrite(heater, 0);
 }
 
 void reconnect() {
@@ -81,25 +92,39 @@ void reconnect() {
 }
 
 void loop() {
-  delay(2000);
+  delay(500);
   if(!mqttClient.connected()){
     reconnect();
   }
-  if(millis() - previousMillis > INTERVAL) {
 
-    valorADTemp = analogRead(sensorPin);
-
-    if(tempAtual != valorADTemp*5/(0.01*1024)){
-      tempAtual = valorADTemp*5/(0.01*1024);
-      sendData(tempAtual);
-    }
-
-    previousMillis = millis();
+  valorADTemp = analogRead(sensorPin);
+  if(tempAtual != valorADTemp*5/(0.01*1024)){
+    tempAtual = valorADTemp*5/(0.01*1024);
+    sendData(tempAtual);
   }
 
-
+  error  = setPoint - tempAtual;
+  long int deltaTime = (millis() - lastDeltaTime);  
+    
+  Prop = error * kP;
+  Integ += (error *kI) * deltaTime/1000.0;
   
+  Deriv = ((lastTemperature - tempAtual) * kD)/deltaTime/1000.0;
+
+  Serial.println("NOVA TEMPERATURA: " + padLeft(String(setPoint), 6) + "COOLER: " + padLeft(String(setColer), 6) + "Propositional: " + padLeft(String(Prop), 6) + "Integral: " + padLeft(String(Integ), 6) + "Derivative: " + padLeft(String(Deriv), 6));
+    
+  PID = Prop + Integ + Deriv;
+
+  if(PID>255) PID = 255;
+  if(PID<0)   PID = 0;
+  analogWrite(heater, PID);
+
+  int intCooler = ((setColer*1022)/100);
+  analogWrite(cooler, intCooler);
+
   mqttClient.loop();
+  lastDeltaTime = deltaTime;
+  lastTemperature = tempAtual;
 }
 
 void sendData(float temp) {
@@ -107,6 +132,13 @@ void sendData(float temp) {
   float temperatura = temp;
   if(mqttClient.connect(CLIENT_ID)) {
    mqttClient.publish("PStemperatura", dtostrf(temperatura, 6, 2, msgBuffer));
-   Serial.println("Pacote enviado");
  }
+}
+
+String padLeft(String variable, int space) {
+  String strSpaces = "";
+   for(int i=0;i<space;i++){
+    strSpaces += " ";
+   }
+   return variable + strSpaces;
 }
