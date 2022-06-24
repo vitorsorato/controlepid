@@ -2,7 +2,7 @@
 #include <Ethernet.h>
 #include "PubSubClient.h"
 
-#define CLIENT_ID       "VSRA"
+#define CLIENT_ID       "PSVSRA"
 #define INTERVAL        2000
 
 int lichtstatus;
@@ -17,23 +17,24 @@ const byte heater = 3, cooler = 5, sensorPin = A0;
 byte valorADTemp;
 float tempAtual, millisAtual;
 long int lastDeltaTime;
+long int PIDTemp = 0;
 
 
 double error = 0;
 double temperature;
 double lastTemperature;
 
-double kP = 5;
-double kI = 3;
-double kD = 6;
+double kP = 10;
+double kI = 5;
+double kD = 5;
 
 double Prop = 0;
 double Integ = 0;
 double Deriv = 0;
 
 double PID = 0;
-double setPoint = 40;
-double setColer = 10;
+double setPoint = 27.5;
+double setColer = 0;
 
 void callback(char* topic, byte* payload, unsigned int length) {
   Serial.print("Mensagem recebida [");
@@ -47,12 +48,19 @@ void callback(char* topic, byte* payload, unsigned int length) {
   int intValor = valorPayload.toInt();
   
   if(String(topic) == String("changePSTemperatura")){
-    Serial.println("changePSTemperatura");
     setPoint = intValor;
   }
   if(String(topic) == String("changePSCooler")){
-    Serial.println("changePSCooler");
     setColer = intValor;
+  }
+  if(String(topic) == String("changePSKp")){
+    kP = intValor;
+  }
+  if(String(topic) == String("changePSKi")){
+    kI = intValor;
+  }
+  if(String(topic) == String("changePSKd")){
+    kD = intValor;
   }
 }
 
@@ -78,9 +86,11 @@ void reconnect() {
     if (mqttClient.connect(CLIENT_ID)) {
       Serial.println("connected");
       
-      mqttClient.publish("arduinouno","conectado");
       mqttClient.subscribe("changePSTemperatura");
       mqttClient.subscribe("changePSCooler");
+      mqttClient.subscribe("changePSKp");
+      mqttClient.subscribe("changePSKi");
+      mqttClient.subscribe("changePSKd");
       
     } else {
       Serial.print("failed, rc=");
@@ -92,7 +102,7 @@ void reconnect() {
 }
 
 void loop() {
-  delay(500);
+  delay(1000);
   if(!mqttClient.connected()){
     reconnect();
   }
@@ -100,7 +110,7 @@ void loop() {
   valorADTemp = analogRead(sensorPin);
   if(tempAtual != valorADTemp*5/(0.01*1024)){
     tempAtual = valorADTemp*5/(0.01*1024);
-    sendData(tempAtual);
+    sendTemperatura(tempAtual);
   }
 
   error  = setPoint - tempAtual;
@@ -108,10 +118,7 @@ void loop() {
     
   Prop = error * kP;
   Integ += (error *kI) * deltaTime/1000.0;
-  
   Deriv = ((lastTemperature - tempAtual) * kD)/deltaTime/1000.0;
-
-  Serial.println("NOVA TEMPERATURA: " + padLeft(String(setPoint), 6) + "COOLER: " + padLeft(String(setColer), 6) + "Propositional: " + padLeft(String(Prop), 6) + "Integral: " + padLeft(String(Integ), 6) + "Derivative: " + padLeft(String(Deriv), 6));
     
   PID = Prop + Integ + Deriv;
 
@@ -119,25 +126,51 @@ void loop() {
   if(PID<0)   PID = 0;
   analogWrite(heater, PID);
 
-  int intCooler = ((setColer*1022)/100);
+  if(PID != PIDTemp){
+    sendPID(PID);
+  }
+
+  int intCooler = round((setColer*1022)/100);
   analogWrite(cooler, intCooler);
+
+  String newTemp = "Nova Temperatura: " + padLeft(String(setPoint), 10);
+  String newCool = "Cooler: " + padLeft(String(setColer), 10);
+    
+  String knsProp = "kP: " + padLeft(String(kP), 10);
+  String knsIntg = "kI: " + padLeft(String(kI), 10);
+  String knsDerv = "kD: " + padLeft(String(kD), 10);
+  
+  String pidProp = "PROP: " + padLeft(String(Prop), 10);
+  String pidIntg = "INTG: " + padLeft(String(Integ), 10);
+  String pidDerv = "DERV: " + padLeft(String(Deriv), 10);
+
+  Serial.println(newTemp + newCool + knsProp + knsIntg + knsDerv + pidProp + pidIntg + pidDerv);
 
   mqttClient.loop();
   lastDeltaTime = deltaTime;
   lastTemperature = tempAtual;
+  PIDTemp = PID;
 }
 
-void sendData(float temp) {
+void sendTemperatura(float temp) {
   char msgBuffer[20];
-  float temperatura = temp;
   if(mqttClient.connect(CLIENT_ID)) {
-   mqttClient.publish("PStemperatura", dtostrf(temperatura, 6, 2, msgBuffer));
+   mqttClient.publish("PStemperatura", dtostrf(temp, 6, 2, msgBuffer));
+ }
+}
+
+
+void sendPID(int PID) {
+  char msgBuffer[20];
+  if(mqttClient.connect(CLIENT_ID)) {
+   mqttClient.publish("PSPID", dtostrf(PID, 6, 2, msgBuffer));
  }
 }
 
 String padLeft(String variable, int space) {
   String strSpaces = "";
-   for(int i=0;i<space;i++){
+  int lenVar = variable.length(); 
+   for(int i=0;i<(space - lenVar);i++){
     strSpaces += " ";
    }
    return variable + strSpaces;
