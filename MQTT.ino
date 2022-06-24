@@ -16,11 +16,12 @@ long previousMillis;
 const byte heater = 3, cooler = 5, sensorPin = A0;
 byte valorADTemp;
 float tempAtual, millisAtual;
-long int lastDeltaTime;
+long int lastDeltaTime = 0;
 long int PIDTemp = 0;
 
 
 double error = 0;
+double error_ant = 0;
 double temperature;
 double lastTemperature;
 
@@ -30,6 +31,7 @@ double kD = 5;
 
 double Prop = 0;
 double Integ = 0;
+double Integ_ant = 0;
 double Deriv = 0;
 
 double PID = 0;
@@ -37,33 +39,33 @@ double setPoint = 27.5;
 double setColer = 0;
 
 void callback(char* topic, byte* payload, unsigned int length) {
-  Serial.print("Mensagem recebida [");
-  Serial.print(topic);
-  Serial.print("]: ");
   String valorPayload = "";
   for (int i=0;i<length;i++) {
-    Serial.print((char)payload[i]);
     valorPayload = valorPayload + (char)payload[i];
   }
-  int intValor = valorPayload.toInt();
+  Serial.println("Mensagem recebida [" + String(topic) + "]: " + valorPayload);
+  
+  double doubleValor = valorPayload.toDouble();
   
   if(String(topic) == String("changePSTemperatura")){
-    setPoint = intValor;
+    setPoint = doubleValor;
   }
   if(String(topic) == String("changePSCooler")){
-    setColer = intValor;
+    setColer = doubleValor;
   }
   if(String(topic) == String("changePSKp")){
-    kP = intValor;
+    kP = doubleValor;
   }
   if(String(topic) == String("changePSKi")){
-    kI = intValor;
+    kI = doubleValor;
   }
   if(String(topic) == String("changePSKd")){
-    kD = intValor;
+    kD = doubleValor;
   }
-}
 
+  zeraVariaveis();
+}
+  
 void setup() {
   Serial.begin(9600);
   if(Ethernet.begin(mac) == 0) {
@@ -82,9 +84,9 @@ void setup() {
 
 void reconnect() {
   while (!mqttClient.connected()) {
-    Serial.print("Attempting MQTT connection...");
+    Serial.println("Conectando com MQTT...");
     if (mqttClient.connect(CLIENT_ID)) {
-      Serial.println("connected");
+      Serial.println("CONECTADO!!");
       
       mqttClient.subscribe("changePSTemperatura");
       mqttClient.subscribe("changePSCooler");
@@ -93,9 +95,9 @@ void reconnect() {
       mqttClient.subscribe("changePSKd");
       
     } else {
-      Serial.print("failed, rc=");
-      Serial.print(mqttClient.state());
-      Serial.println(" try again in 5 seconds");
+      Serial.println("falha, rc=");
+      Serial.println(mqttClient.state());
+      Serial.println(" tentando novamente em 5 seg.");
       delay(5000);
     }
   }
@@ -113,12 +115,13 @@ void loop() {
     sendTemperatura(tempAtual);
   }
 
-  error  = setPoint - tempAtual;
-  long int deltaTime = (millis() - lastDeltaTime);  
+  error = setPoint - tempAtual;
+  long int deltaTime = (millis() - lastDeltaTime)/1000;  
+
     
   Prop = error * kP;
-  Integ += (error *kI) * deltaTime/1000.0;
-  Deriv = ((lastTemperature - tempAtual) * kD)/deltaTime/1000.0;
+  Integ = Integ_ant + ((error * kI * (deltaTime)));
+  Deriv = ((error - error_ant) * kD)/deltaTime;
     
   PID = Prop + Integ + Deriv;
 
@@ -141,15 +144,22 @@ void loop() {
   String knsDerv = "kD: " + padLeft(String(kD), 10);
   
   String pidProp = "PROP: " + padLeft(String(Prop), 10);
-  String pidIntg = "INTG: " + padLeft(String(Integ), 10);
+  String pidIntg = "INTG: " + padLeft(String(Integ), 14);
   String pidDerv = "DERV: " + padLeft(String(Deriv), 10);
 
   Serial.println(newTemp + newCool + knsProp + knsIntg + knsDerv + pidProp + pidIntg + pidDerv);
 
-  mqttClient.loop();
-  lastDeltaTime = deltaTime;
+  lastDeltaTime = millis();
   lastTemperature = tempAtual;
   PIDTemp = PID;
+  Integ_ant = Integ;
+  error_ant = error;
+  mqttClient.loop();
+}
+
+void zeraVariaveis(){
+  Integ_ant = 0;
+  error_ant = 0;
 }
 
 void sendTemperatura(float temp) {
