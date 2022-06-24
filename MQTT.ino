@@ -112,6 +112,7 @@ void loop() {
   valorADTemp = analogRead(sensorPin);
   if(tempAtual != valorADTemp*5/(0.01*1024)){
     tempAtual = valorADTemp*5/(0.01*1024);
+    if(tempAtual<27.5) tempAtual = 27.5;
     sendTemperatura(tempAtual);
   }
 
@@ -122,6 +123,8 @@ void loop() {
   Prop = error * kP;
   Integ = Integ_ant + ((error * kI * (deltaTime)));
   Deriv = ((error - error_ant) * kD)/deltaTime;
+
+  if (isnan(Deriv)) Deriv = 0;
     
   PID = Prop + Integ + Deriv;
 
