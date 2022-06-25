@@ -15,7 +15,10 @@ PubSubClient mqttClient;
 long previousMillis;
 const byte heater = 3, cooler = 5, sensorPin = A0;
 byte valorADTemp;
-float tempAtual, millisAtual;
+float tempAtual, tempAtualFilt, millisAtual, xn, yn;
+float xn1 = 0;
+float yn1 = 0;
+
 long int lastDeltaTime = 0;
 long int PIDTemp = 0;
 
@@ -109,12 +112,16 @@ void loop() {
     reconnect();
   }
 
-  valorADTemp = analogRead(sensorPin);
-  if(tempAtual != valorADTemp*5/(0.01*1024)){
-    tempAtual = valorADTemp*5/(0.01*1024);
-    if(tempAtual<27.5) tempAtual = 27.5;
-    sendTemperatura(tempAtual);
-  }
+
+  tempAtual = analogRead(sensorPin)*5/(0.01*1024);
+  Serial.println(tempAtual);
+  tempAtualFilt = filtroPassaBaixa(tempAtual);
+  Serial.println(tempAtualFilt);
+  
+  
+  if(tempAtual<27.5) tempAtual = 27.5;
+  
+  sendTemperatura(tempAtual);
 
   error = setPoint - tempAtual;
   long int deltaTime = (millis() - lastDeltaTime)/1000;  
@@ -158,6 +165,17 @@ void loop() {
   Integ_ant = Integ;
   error_ant = error;
   mqttClient.loop();
+}
+
+float filtroPassaBaixa(float tempAtual){
+
+  xn = tempAtual + random(-50, 50)*0.01;
+  if(yn1 == 0) yn1 = xn;
+  yn = 0.969*yn1 + 0.0155*xn+ 0.0155*xn1;
+  yn1 = yn;
+  xn1 = xn;
+  
+  return yn;
 }
 
 void zeraVariaveis(){
